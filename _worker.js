@@ -4,8 +4,6 @@
 let hub_host = 'registry-1.docker.io';
 // Docker认证服务器地址
 const auth_url = 'https://auth.docker.io';
-// 自定义的工作服务器地址
-let workers_url = 'https://xxx/';
 
 let 屏蔽爬虫UA = ['netcraft'];
 
@@ -54,22 +52,18 @@ function makeRes(body, status = 200, headers = {}) {
 /**
  * 构造新的URL对象
  * @param {string} urlStr URL字符串
+ * @param {string} base URL base
  */
-function newUrl(urlStr) {
+function newUrl(urlStr, base) {
 	try {
-		return new URL(urlStr) // 尝试构造新的URL对象
+		console.log(`Constructing new URL object with path ${urlStr} and base ${base}`);
+		return new URL(urlStr, base); // 尝试构造新的URL对象
 	} catch (err) {
+		console.error(err);
 		return null // 构造失败返回null
 	}
 }
 
-function isUUID(uuid) {
-	// 定义一个正则表达式来匹配 UUID 格式
-	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-	
-	// 使用正则表达式测试 UUID 字符串
-	return uuidRegex.test(uuid);
-}
 
 async function nginx() {
 	const text = `
@@ -409,7 +403,7 @@ async function searchInterface() {
 	    </div>
 	
 	    <footer>
-	        <p>&copy; 2024 SZIS Tech. 保留所有权利。</p>
+	        <p>&copy; 2025 SZIS Tech. 保留所有权利。</p>
 	    </footer>
 	    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.25.0/prism.min.js"></script>
 	    <script>
@@ -467,11 +461,10 @@ export default {
 		const userAgentHeader = request.headers.get('User-Agent');
 		const userAgent = userAgentHeader ? userAgentHeader.toLowerCase() : "null";
 		if (env.UA) 屏蔽爬虫UA = 屏蔽爬虫UA.concat(await ADD(env.UA));
-		workers_url = `https://${url.hostname}`;
-		const pathname = url.pathname;
+		const workers_url = `https://${url.hostname}`;
 
 		// 获取请求参数中的 ns
-		const ns = url.searchParams.get('ns'); 
+		const ns = url.searchParams.get('ns');
 		const hostname = url.searchParams.get('hubhost') || url.hostname;
 		const hostTop = hostname.split('.')[0]; // 获取主机名的第一部分
 
@@ -489,9 +482,10 @@ export default {
 		}
 
 		const fakePage = checkHost ? checkHost[1] : false; // 确保 fakePage 不为 undefined
-		console.log(`域名头部: ${hostTop}\n反代地址: ${hub_host}\n伪装首页: ${fakePage}`);
-		const isUuid = isUUID(pathname.split('/')[1].split('/')[0]);
-
+		console.log(`域名头部: ${hostTop} 反代地址: ${hub_host} searchInterface: ${fakePage}`);
+		// 更改请求的主机名
+		url.hostname = hub_host;
+		const hubParams = ['/v1/search', '/v1/repositories'];
 		if (屏蔽爬虫UA.some(fxxk => userAgent.includes(fxxk)) && 屏蔽爬虫UA.length > 0) {
 			// 首页改成一个nginx伪装页
 			return new Response(await nginx(), {
@@ -499,64 +493,35 @@ export default {
 					'Content-Type': 'text/html; charset=UTF-8',
 				},
 			});
-		}
-
-		const conditions = [
-			isUuid,
-			pathname.includes('/_'),
-			pathname.includes('/r/'),
-			pathname.includes('/v2/repositories'),
-			pathname.includes('/v2/namespaces'),
-			pathname.includes('/v2/auditlogs'),
-			pathname.includes('/v2/access-tokens'),
-			pathname.includes('/v2/user'),
-			pathname.includes('/v2/orgs'),
-			pathname.includes('/v2/_catalog'),
-			pathname.includes('/v2/categories'),
-			pathname.includes('/v2/feature-flags'),
-			pathname.includes('search'),
-			pathname.includes('source'),
-			pathname == '/',
-			pathname == '/favicon.ico',
-			pathname == '/auth/profile',
-		];
-
-		if (conditions.some(condition => condition) && (fakePage === true || hostTop == 'docker')) {
-			if (env.URL302) {
-				return Response.redirect(env.URL302, 302);
-			} else if (env.URL) {
-				if (env.URL.toLowerCase() == 'nginx') {
-					//首页改成一个nginx伪装页
-					return new Response(await nginx(), {
+		} else if ((userAgent && userAgent.includes('mozilla')) || hubParams.some(param => url.pathname.includes(param))) {
+			if (url.pathname == '/') {
+				if (env.URL302) {
+					return Response.redirect(env.URL302, 302);
+				} else if (env.URL) {
+					if (env.URL.toLowerCase() == 'nginx') {
+						//首页改成一个nginx伪装页
+						return new Response(await nginx(), {
+							headers: {
+								'Content-Type': 'text/html; charset=UTF-8',
+							},
+						});
+					} else return fetch(new Request(env.URL, request));
+				} else	{
+					if (fakePage) return new Response(await searchInterface(), {
 						headers: {
 							'Content-Type': 'text/html; charset=UTF-8',
 						},
 					});
-				} else return fetch(new Request(env.URL, request));
-			} else if (url.pathname == '/'){
-				return new Response(await searchInterface(), {
-					headers: {
-					  'Content-Type': 'text/html; charset=UTF-8',
-					},
-				});
+				}
+			} else {
+				if (fakePage) url.hostname = 'hub.docker.com';
+				if (url.searchParams.get('q')?.includes('library/') && url.searchParams.get('q') != 'library/') {
+					const search = url.searchParams.get('q');
+					url.searchParams.set('q', search.replace('library/', ''));
+				}
+				const newRequest = new Request(url, request);
+				return fetch(newRequest);
 			}
-			
-			const newUrl = new URL("https://registry.hub.docker.com" + pathname + url.search);
-
-			// 复制原始请求的标头
-			const headers = new Headers(request.headers);
-
-			// 确保 Host 头部被替换为 hub.docker.com
-			headers.set('Host', 'registry.hub.docker.com');
-
-			const newRequest = new Request(newUrl, {
-					method: request.method,
-					headers: headers,
-					body: request.method !== 'GET' && request.method !== 'HEAD' ? await request.blob() : null,
-					redirect: 'follow'
-			});
-
-			return fetch(newRequest);
 		}
 
 		// 修改包含 %2F 和 %3A 的请求
@@ -584,14 +549,11 @@ export default {
 		}
 
 		// 修改 /v2/ 请求路径
-		if ( hub_host == 'registry-1.docker.io' && /^\/v2\/[^/]+\/[^/]+\/[^/]+$/.test(url.pathname) && !/^\/v2\/library/.test(url.pathname)) {
+		if (hub_host == 'registry-1.docker.io' && /^\/v2\/[^/]+\/[^/]+\/[^/]+$/.test(url.pathname) && !/^\/v2\/library/.test(url.pathname)) {
 			//url.pathname = url.pathname.replace(/\/v2\//, '/v2/library/');
 			url.pathname = '/v2/library/' + url.pathname.split('/v2/')[1];
 			console.log(`modified_url: ${url.pathname}`);
 		}
-
-		// 更改请求的主机名
-		url.hostname = hub_host;
 
 		// 构造请求参数
 		let parameter = {
@@ -612,6 +574,11 @@ export default {
 			parameter.headers.Authorization = getReqHeader("Authorization");
 		}
 
+		// 添加可能存在字段X-Amz-Content-Sha256
+		if (request.headers.has("X-Amz-Content-Sha256")) {
+			parameter.headers['X-Amz-Content-Sha256'] = getReqHeader("X-Amz-Content-Sha256");
+		}
+
 		// 发起请求并处理响应
 		let original_response = await fetch(new Request(url, request), parameter);
 		let original_response_clone = original_response.clone();
@@ -629,7 +596,9 @@ export default {
 
 		// 处理重定向
 		if (new_response_headers.get("Location")) {
-			return httpHandler(request, new_response_headers.get("Location"));
+			const location = new_response_headers.get("Location");
+			console.info(`Found redirection location, redirecting to ${location}`);
+			return httpHandler(request, location, hub_host);
 		}
 
 		// 返回修改后的响应
@@ -645,8 +614,9 @@ export default {
  * 处理HTTP请求
  * @param {Request} req 请求对象
  * @param {string} pathname 请求路径
+ * @param {string} baseHost 基地址
  */
-function httpHandler(req, pathname) {
+function httpHandler(req, pathname, baseHost) {
 	const reqHdrRaw = req.headers;
 
 	// 处理预检请求
@@ -660,11 +630,13 @@ function httpHandler(req, pathname) {
 
 	const reqHdrNew = new Headers(reqHdrRaw);
 
+	reqHdrNew.delete("Authorization"); // 修复s3错误
+
 	const refer = reqHdrNew.get('referer');
 
 	let urlStr = pathname;
 
-	const urlObj = newUrl(urlStr);
+	const urlObj = newUrl(urlStr, 'https://' + baseHost);
 
 	/** @type {RequestInit} */
 	const reqInit = {
