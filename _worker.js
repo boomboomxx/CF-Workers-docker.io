@@ -533,10 +533,9 @@ export default {
 
 		// 处理token请求
 		if (url.pathname.includes('/token')) {
-			let cur_auth_url = hub_host == 'registry-1.docker.io' ? 'auth.docker.io' : hub_host;
 			let token_parameter = {
 				headers: {
-					'Host': cur_auth_url,
+					'Host': 'auth.docker.io',
 					'User-Agent': getReqHeader("User-Agent"),
 					'Accept': getReqHeader("Accept"),
 					'Accept-Language': getReqHeader("Accept-Language"),
@@ -545,7 +544,7 @@ export default {
 					'Cache-Control': 'max-age=0'
 				}
 			};
-			let token_url = 'https://' + cur_auth_url + url.pathname + url.search;
+			let token_url = auth_url + url.pathname + url.search;
 			return fetch(new Request(token_url, request), token_parameter);
 		}
 		// 修改 /v2/ 请求路径
