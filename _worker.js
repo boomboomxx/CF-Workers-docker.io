@@ -535,7 +535,7 @@ export default {
 		if (url.pathname.includes('/token')) {
 			let token_parameter = {
 				headers: {
-					'Host': 'auth.docker.io',
+					'Host': 'Host': hub_host == 'registry-1.docker.io' ? 'auth.docker.io' : hub_host,
 					'User-Agent': getReqHeader("User-Agent"),
 					'Accept': getReqHeader("Accept"),
 					'Accept-Language': getReqHeader("Accept-Language"),
